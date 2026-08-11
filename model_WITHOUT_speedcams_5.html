@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Highway Streetlight — WITHOUT Speed Cameras (standard poles)</title>
+<style>
+  html, body { margin:0; height:100%; overflow:hidden; background:#0b1622; font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
+  #hint { position:absolute; top:14px; left:14px; color:#e8eef5; background:rgba(10,20,30,0.55); padding:10px 14px; border-radius:10px; font-size:13px; line-height:1.5; backdrop-filter: blur(4px); }
+  #hint b { color:#8ecbff; }
+  canvas { display:block; }
+</style>
+</head>
+<body>
+<div id="hint">NO SPEED CAMERAS &middot; Drag to orbit &middot; Scroll to zoom &middot; Full-cutoff "Best" fixture with integrated flood sensor</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x131f33);
+scene.fog = new THREE.Fog(0x1e3252, 20, 70);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x3a4a66, 0.5));
+const moon = new THREE.DirectionalLight(0x5670a0, 0.35);
+moon.position.set(12, 20, 8); moon.castShadow = true;
+moon.shadow.mapSize.set(2048,2048);
+moon.shadow.camera.left=-15; moon.shadow.camera.right=15; moon.shadow.camera.top=15; moon.shadow.camera.bottom=-15;
+scene.add(moon);
+
+const steel   = new THREE.MeshStandardMaterial({ color:0x8b929a, metalness:0.6, roughness:0.4 });
+const steelD  = new THREE.MeshStandardMaterial({ color:0x555c63, metalness:0.5, roughness:0.5 });
+const concrete= new THREE.MeshStandardMaterial({ color:0xb8b2a4, roughness:0.9 });
+const darkPoly= new THREE.MeshStandardMaterial({ color:0x1c1d20, roughness:0.35, metalness:0.2 });
+const lensMat = new THREE.MeshStandardMaterial({ color:0xdce9ee, roughness:0.15, metalness:0.05, transparent:true, opacity:0.55 }); // polycarbonate covers
+const uvAcrylic = new THREE.MeshStandardMaterial({ color:0xfff3d6, emissive:0xfff3c4, emissiveIntensity:0.9, roughness:0.25, transparent:true, opacity:0.8 }); // UV-stabilized acrylic light shield
+const sensMat = new THREE.MeshStandardMaterial({ color:0xd8d8d8, roughness:0.4 });
+const roadMat = new THREE.MeshStandardMaterial({ color:0x22262c, roughness:1 });
+const lineMat = new THREE.MeshStandardMaterial({ color:0xd8d8d8 });
+const waterMat= new THREE.MeshStandardMaterial({ color:0x141416, roughness:0.5 });
+const frpMat  = new THREE.MeshStandardMaterial({ color:0xe6e0cc, roughness:0.55, metalness:0.05, transparent:true, opacity:0.9 }); // FRP outer shell
+const alSpine = new THREE.MeshStandardMaterial({ color:0xcfd6dc, roughness:0.25, metalness:0.9 }); // aluminum inner spine
+const frpWindow = new THREE.MeshStandardMaterial({ color:0xd9caa0, roughness:0.6, metalness:0.05, transparent:true, opacity:0.55 }); // thin FRP window on custom-built housings
+const coneMat = new THREE.MeshBasicMaterial({ color:0xfff3c0, transparent:true, opacity:0.16, side:THREE.DoubleSide, depthWrite:false });
+
+// ---- params: standard road-lighting pole, NOT tied to gantry/truck clearance ----
+const SPAN=9.0, LANE1_X=2.75, LANE2_X=6.25, BASE_H=0.4;
+const POLE_H=9.0;
+const LUM_MOUNT_Z=8.5, ARM_RISER_H=0.9;
+const ARM_DROOP=THREE.MathUtils.degToRad(8), LUM_TILT=THREE.MathUtils.degToRad(3);
+
+const group = new THREE.Group();
+scene.add(group);
+function box(w,h,d,mat){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat); m.castShadow=true; m.receiveShadow=true; return m; }
+function cyl(r,h,mat,seg=20){ const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,seg), mat); m.castShadow=true; return m; }
+
+function labelSprite(lines){
+  if(typeof lines === 'string') lines = [lines];
+  const titleFont = 'bold 40px -apple-system,Segoe UI,Roboto,sans-serif';
+  const subFont   = '30px -apple-system,Segoe UI,Roboto,sans-serif';
+  const pad = 24;
+  const meas = document.createElement('canvas').getContext('2d');
+  let maxW = 0;
+  const lineH = lines.map((ln,i)=>{
+    meas.font = i===0 ? titleFont : subFont;
+    maxW = Math.max(maxW, meas.measureText(ln).width);
+    return i===0 ? 50 : 38;
+  });
+  const width = Math.ceil(maxW + pad*2);
+  const height = Math.ceil(lineH.reduce((a,b)=>a+b,0) + pad*1.5);
+  const c = document.createElement('canvas'); c.width=width; c.height=height;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle='rgba(8,16,26,0.82)';
+  if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(0,0,width,height,16); ctx.fill(); } else { ctx.fillRect(0,0,width,height); }
+  let y = pad*0.75;
+  lines.forEach((ln,i)=>{
+    ctx.font = i===0 ? titleFont : subFont;
+    ctx.fillStyle = i===0 ? '#eaf4ff' : '#9fd0ff';
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(ln, width/2, y);
+    y += lineH[i];
+  });
+  const tex = new THREE.CanvasTexture(c);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, depthTest:false}));
+  const worldW = 2.7 * (width/520);
+  const worldH = worldW * (height/width);
+  spr.scale.set(worldW, worldH, 1);
+  spr.renderOrder=999;
+  return spr;
+}
+
+const road = box(SPAN+6, 0.05, 20, roadMat); road.position.set(SPAN/2,-0.025,0); road.receiveShadow=true; group.add(road);
+for(let i=-9;i<=9;i+=1.2){ const dash=box(0.15,0.06,0.6,lineMat); dash.position.set(SPAN/2,0.001,i); group.add(dash); }
+
+function pole(px, mirror, idx){
+  const sub = new THREE.Group();
+  const base = box(0.9,BASE_H,0.9,concrete); base.position.set(px,BASE_H/2,0); sub.add(base);
+
+  // Steel pole, FRP shroud only on the lower ~2.5m touch-safety zone
+  const SHROUD_H = 2.5;
+  const poleShaft = cyl(0.15, POLE_H, steel); poleShaft.position.set(px, BASE_H+POLE_H/2, 0); sub.add(poleShaft);
+  const shroud = cyl(0.17, SHROUD_H, frpMat); shroud.position.set(px, BASE_H+SHROUD_H/2, 0); sub.add(shroud);
+  sub.add((()=>{const l=labelSprite([`Support Pole ${idx}`, `Steel Pole + FRP Shroud (base 2.5m)`]); l.position.set(px, BASE_H+0.6, 1.2); return l;})());
+
+  // streetlight arm - standard mounting height, longer riser, drooping DOWN to the lane centerline
+  const riserTopZ = BASE_H + LUM_MOUNT_Z;
+  const riser = box(0.1, ARM_RISER_H, 0.1, steelD); riser.position.set(px, riserTopZ+ARM_RISER_H/2, 0); sub.add(riser);
+  const reach = mirror ? (SPAN-LANE2_X) : LANE1_X;
+  const dir = mirror ? -1 : 1;
+  const armPivot = new THREE.Group();
+  armPivot.position.set(px, riserTopZ+ARM_RISER_H, 0);
+  armPivot.rotation.z = dir>0 ? -ARM_DROOP : (Math.PI + ARM_DROOP);
+  const tube = cyl(0.045, reach, steel); tube.rotation.z=Math.PI/2; tube.position.set(reach/2,0,0);
+  armPivot.add(tube); sub.add(armPivot);
+
+  const lumX = px + dir*reach*Math.cos(ARM_DROOP);
+  const lumZ = riserTopZ+ARM_RISER_H - reach*Math.sin(ARM_DROOP);
+  const lumGroup = new THREE.Group();
+  lumGroup.position.set(lumX, lumZ-0.13, 0);
+  lumGroup.rotation.z = dir>0 ? -LUM_TILT : LUM_TILT;
+
+  // "Best"-style full-cutoff flat fixture
+  const lumHead = box(0.62,0.07,0.32,darkPoly); lumGroup.add(lumHead);
+  const lumLens = box(0.54,0.015,0.28,uvAcrylic); lumLens.position.y=-0.043; lumGroup.add(lumLens);
+  // ambient light sensor: mounted ON the luminaire head (real photocell socket location)
+  const sBase = cyl(0.03,0.04,sensMat); sBase.position.set(0.18,0.035+0.02,0); lumGroup.add(sBase);
+  const sDome = new THREE.Mesh(new THREE.SphereGeometry(0.03,16,12), lensMat); sDome.position.set(0.18,0.035+0.06,0); lumGroup.add(sDome);
+
+  // MaxBotix MB7389 (10m range) INTEGRATED into the fixture body, facing straight
+  // down through a small port next to the main lens. At this ~9.2m mount height
+  // it's within the sensor's 10m range, with a modest ~0.7-0.8m margin.
+  const wHousing = box(0.1,0.06,0.1,waterMat); wHousing.position.set(-0.2,0.02,0); lumGroup.add(wHousing);
+  const wPort = cyl(0.03,0.02,frpWindow); wPort.position.set(-0.2,-0.045,0); lumGroup.add(wPort);
+
+  sub.add(lumGroup);
+
+  // full-cutoff photometry: downward spotlight, nothing glows upward/sideways
+  const spot = new THREE.SpotLight(0xfff0c0, 2.2, 14, THREE.MathUtils.degToRad(28), 0.4, 1.2);
+  spot.position.set(lumX, lumZ-0.15, 0);
+  const spotTarget = new THREE.Object3D();
+  spotTarget.position.set(lumX, 0, 0);
+  sub.add(spotTarget);
+  spot.target = spotTarget;
+  sub.add(spot);
+  const coneH = lumZ-0.15;
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(coneH*Math.tan(THREE.MathUtils.degToRad(28)), coneH, 28, 1, true), coneMat);
+  cone.position.set(lumX, (lumZ-0.15)-coneH/2, 0);
+  sub.add(cone);
+
+  sub.add((()=>{const l=labelSprite([`LED Streetlight ${idx}`, `Full-Cutoff \u2014 UV-Stabilized Acrylic`]); l.position.set(lumX, lumZ+0.4, 0.9); return l;})());
+  sub.add((()=>{const l=labelSprite([`ANSI C136.10 (3-Pin)`, `Photocell ${idx} \u2014 Polycarbonate Dome`]); l.position.set(lumX, lumZ+0.85, -0.5); return l;})());
+  sub.add((()=>{const l=labelSprite([`MaxBotix MB7389`, `Flood Sensor ${idx} \u2014 FRP Cover, Integrated`]); l.position.set(lumX, lumZ-0.55, -0.9); return l;})());
+
+  group.add(sub);
+}
+pole(0, false, 1);
+pole(SPAN, true, 2);
+
+group.position.x = -SPAN/2;
+
+let radius=14, theta=0.9, phi=1.15, target=new THREE.Vector3(0,4.5,0);
+function updateCam(){
+  camera.position.set(
+    target.x + radius*Math.sin(phi)*Math.cos(theta),
+    target.y + radius*Math.cos(phi),
+    target.z + radius*Math.sin(phi)*Math.sin(theta)
+  );
+  camera.lookAt(target);
+}
+updateCam();
+
+let dragging=false, lastX=0, lastY=0, autorotate=true;
+renderer.domElement.addEventListener('pointerdown', e=>{dragging=true; lastX=e.clientX; lastY=e.clientY; autorotate=false;});
+window.addEventListener('pointerup', ()=>dragging=false);
+window.addEventListener('pointermove', e=>{
+  if(!dragging) return;
+  theta -= (e.clientX-lastX)*0.006;
+  phi   = Math.min(Math.max(phi-(e.clientY-lastY)*0.006, 0.3), 1.5);
+  lastX=e.clientX; lastY=e.clientY;
+  updateCam();
+});
+renderer.domElement.addEventListener('wheel', e=>{
+  radius = Math.min(Math.max(radius + e.deltaY*0.015, 6), 40);
+  updateCam();
+}, {passive:true});
+window.addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+function animate(){
+  requestAnimationFrame(animate);
+  if(autorotate){ theta += 0.0018; updateCam(); }
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
